@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="en" data-palette="ice">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CLEARANCE · check a film before YouTube checks it for you</title>
+<meta name="description" content="A pre-upload clearance desk for films going to YouTube. Finds every music cue, timecodes it, and builds the evidence pack that answers a claim.">
+<style>
+/* ---------------------------------------------------------------- tokens */
+:root{
+  --ground:#E7EFF7; --card:#F7FAFD; --ink:#101F2C; --muted:#5C7387; --hair:#BECEDD;
+  --accent:#1B5FA8; --accentText:#FFFFFF; --stop:#B3321F; --watch:#9A6A12; --go:#1E6B4E;
+  --serif:Georgia,"Palatino Linotype",Palatino,serif;
+  --sans:"Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif;
+  --mono:"Cascadia Mono",Consolas,"SFMono-Regular",Menlo,monospace;
+  --r:16px; --r2:24px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--ground); color:var(--ink); font-family:var(--sans);
+  font-size:15px; line-height:1.62; -webkit-font-smoothing:antialiased;
+}
+body::before{
+  content:""; position:fixed; inset:0; pointer-events:none; z-index:0; opacity:.035;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
+  mix-blend-mode:multiply;
+}
+#wrap{position:relative; z-index:1; max-width:1180px; margin:0 auto; padding:0 30px 90px}
+h1,h2,h3,h4{font-family:var(--serif); font-weight:600; letter-spacing:-.01em; margin:0}
+p{margin:0 0 12px}
+a{color:var(--accent)}
+.dim{color:var(--muted)}
+.mono{font-family:var(--mono); font-size:12.5px; word-break:break-all}
+.sep{color:var(--hair); padding:0 8px}
+.lab{font-size:11px; letter-spacing:.13em; text-transform:uppercase; color:var(--muted); font-weight:700; display:block; margin-bottom:5px}
+
+/* ---------------------------------------------------------------- masthead */
+header.top{display:flex; justify-content:space-between; align-items:flex-end; gap:30px; padding:38px 0 16px; flex-wrap:wrap}
+.brand h1{font-size:clamp(34px,5.6vw,58px); line-height:.98; letter-spacing:-.035em}
+.brand .kick{font-size:11.5px; letter-spacing:.22em; text-transform:uppercase; color:var(--muted); font-weight:700; margin-bottom:10px}
+.brand .sub{font-family:var(--serif); font-size:17px; color:var(--muted); margin-top:8px; max-width:34ch}
+.right-head{text-align:right; min-width:280px}
+#filmLine{font-size:13.5px; line-height:1.7}
+#filmLine strong{font-weight:600}
+.pals{display:flex; gap:7px; justify-content:flex-end; margin-top:12px}
+.pals button{width:26px;height:26px;border-radius:50%;border:2px solid transparent;cursor:pointer;padding:0}
+.pals button[data-pal="ice"]{background:#BFD6EA}
+.pals button[data-pal="clay"]{background:#DCC4B2}
+.pals button[data-pal="ink"]{background:#22333F}
+.pals button.on{border-color:var(--ink)}
+hr.rule{border:0; border-top:1px solid var(--hair); margin:0}
+
+/* ---------------------------------------------------------------- tabs */
+nav.tabs{
+  position:sticky; top:0; z-index:20; display:flex; gap:4px; flex-wrap:wrap;
+  margin:0 -30px 26px; padding:10px 30px;
+  background:color-mix(in srgb, var(--ground) 72%, transparent);
+  backdrop-filter:blur(14px) saturate(1.5); -webkit-backdrop-filter:blur(14px) saturate(1.5);
+  border-bottom:1px solid var(--hair);
+}
+nav.tabs button{
+  font:600 13px/1 var(--sans); letter-spacing:.02em; color:var(--muted);
+  background:transparent; border:0; border-radius:999px; padding:10px 16px; cursor:pointer;
+}
+nav.tabs button:hover{background:color-mix(in srgb, var(--card) 80%, transparent); color:var(--ink)}
+nav.tabs button.on{background:var(--accent); color:var(--accentText)}
+nav.tabs button .dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--stop);margin-left:7px;vertical-align:middle;opacity:0}
+nav.tabs button.has .dot{opacity:1}
+
+/* ---------------------------------------------------------------- views */
+.view{display:none}
+.view.on{display:block; animation:in .22s ease-out}
+@keyframes in{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+section{margin:0 0 34px}
+section h3{font-size:19px; margin:0 0 10px}
+section h3::after{content:""; display:block; width:44px; height:2px; background:var(--accent); margin-top:9px}
+
+/* ---------------------------------------------------------------- drop */
+#drop{
+  display:block; border:1.5px dashed var(--hair); border-radius:var(--r2);
+  padding:34px 30px; background:color-mix(in srgb, var(--card) 55%, transparent);
+  cursor:pointer; transition:.18s;
+}
+#drop:hover,#drop.over{border-color:var(--accent); background:color-mix(in srgb, var(--accent) 7%, var(--card))}
+#drop .dh{font-family:var(--serif); font-size:clamp(21px,2.6vw,29px); line-height:1.22; max-width:22ch}
+#drop .ds{color:var(--muted); margin-top:8px; max-width:56ch; font-size:14px}
+#drop .formats{font-size:11.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); font-weight:700; margin-top:14px}
+
+/* ---------------------------------------------------------------- guide */
+#guide{position:relative; background:color-mix(in srgb, var(--accent) 6%, var(--card)); border-radius:var(--r2); padding:24px 26px; margin-bottom:30px}
+#guide.off{display:none}
+#guide .gh{display:flex; justify-content:space-between; align-items:baseline; gap:20px}
+#guide h3{margin:0}
+#guide ol{list-style:none; counter-reset:s; margin:16px 0 4px; padding:0; display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); gap:16px 26px}
+#guide li{counter-increment:s; position:relative; padding-left:34px; font-size:14px}
+#guide li::before{
+  content:counter(s); position:absolute; left:0; top:1px; width:23px; height:23px; border-radius:50%;
+  background:var(--accent); color:var(--accentText); font:700 12px/23px var(--sans); text-align:center;
+}
+#guide li b{display:block; font-weight:600}
+.gbtns{display:flex; gap:9px; flex-wrap:wrap; margin-top:18px}
+
+/* ---------------------------------------------------------------- tiles */
+.tiles{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:13px; margin:0 0 22px}
+.tile{
+  display:block; text-align:left; background:var(--card); border:0; border-radius:var(--r);
+  padding:16px 17px 15px; cursor:pointer; position:relative; overflow:hidden;
+  box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--hair) 60%, transparent);
+}
+.tile.static{cursor:default}
+.tile::before{content:""; position:absolute; left:0; right:0; top:0; height:3px; background:var(--hair)}
+.tile.lv-stop::before{background:var(--stop)}
+.tile.lv-watch::before{background:var(--watch)}
+.tile.lv-go::before{background:var(--go)}
+.tile:not(.static):hover{box-shadow:inset 0 0 0 1.5px var(--accent)}
+.tile.on{box-shadow:inset 0 0 0 2px var(--accent); background:color-mix(in srgb, var(--accent) 8%, var(--card))}
+.tk{display:block; font-size:11.5px; letter-spacing:.13em; text-transform:uppercase; color:var(--muted); font-weight:700}
+.tv{display:block; font-family:var(--serif); font-size:38px; line-height:1.05; letter-spacing:-.03em; margin:4px 0 1px}
+.ts{display:block; font-size:12.5px; color:var(--muted)}
+.tiles.small{grid-template-columns:repeat(auto-fit,minmax(140px,1fr))}
+.tiles.small .tv{font-size:27px}
+
+/* ---------------------------------------------------------------- map */
+#scanBar{background:var(--card); border-radius:var(--r); padding:14px 16px 6px; margin-bottom:22px}
+#mapCanvas{display:block; width:100%}
+.legend{display:flex; gap:20px; flex-wrap:wrap; padding:6px 4px 12px; font-size:12px; color:var(--muted)}
+.legend i{display:inline-block; width:22px; height:9px; border-radius:3px; margin-right:7px; vertical-align:middle}
+
+/* ---------------------------------------------------------------- cues */
+.cue{background:var(--card); border-radius:var(--r2); padding:18px; margin-bottom:14px; display:block}
+.cue.stop{box-shadow:inset 4px 0 0 var(--stop)}
+.cue.watch{box-shadow:inset 4px 0 0 var(--watch)}
+.cue.go{box-shadow:inset 4px 0 0 var(--go)}
+.cuehead{display:flex; gap:18px; align-items:flex-start}
+.thumb{width:150px; height:84px; border-radius:11px; object-fit:cover; flex:none; background:var(--ground)}
+.thumb.blank{display:flex; align-items:center; justify-content:center; font-size:11.5px; color:var(--muted); letter-spacing:.1em; text-transform:uppercase}
+.cuemeta{min-width:0; flex:1}
+.cuewhen{display:flex; align-items:baseline; gap:12px; flex-wrap:wrap}
+.tc{font-family:var(--serif); font-size:27px; letter-spacing:-.02em}
+.cueflags{display:flex; gap:7px; flex-wrap:wrap; margin:7px 0 8px}
+.pill{
+  display:inline-block; font-size:11.5px; font-weight:700; letter-spacing:.09em; text-transform:uppercase;
+  padding:4px 11px; border-radius:999px; background:var(--hair); color:var(--ink);
+}
+.pill.go{background:var(--go); color:#fff}
+.pill.watch{background:var(--watch); color:#fff}
+.pill.stop{background:var(--stop); color:#fff}
+.pill.bed{background:color-mix(in srgb, var(--stop) 18%, var(--card)); color:var(--stop)}
+.pill.exp{background:color-mix(in srgb, var(--go) 18%, var(--card)); color:var(--go)}
+.pill.soft{background:color-mix(in srgb, var(--accent) 15%, var(--card)); color:var(--accent)}
+.verdict{font-family:var(--serif); font-size:17px; margin:2px 0 6px}
+.route{font-size:13.5px; color:var(--muted); margin:0}
+.reasons{margin:9px 0 0; padding-left:18px; font-size:13.5px; color:var(--muted)}
+.reasons li{margin-bottom:4px}
+.filterbar{display:flex; align-items:center; gap:14px; margin:0 0 14px; font-size:13px; color:var(--muted)}
+
+/* ---------------------------------------------------------------- sheet */
+.sheetrow{background:var(--card); border-radius:var(--r2); padding:16px 18px; margin-bottom:12px}
+.sheetrow.stop{box-shadow:inset 4px 0 0 var(--stop)}
+.sheetrow.watch{box-shadow:inset 4px 0 0 var(--watch)}
+.sheetrow.go{box-shadow:inset 4px 0 0 var(--go)}
+.srow-top{display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:12px}
+.snum{font-family:var(--serif); font-size:20px; color:var(--muted)}
+.stc{font-family:var(--serif); font-size:22px}
+.sdur{font-size:13px; color:var(--muted)}
+.spos{font-size:12.5px; color:var(--muted); margin-left:auto}
+.srow-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(215px,1fr)); gap:12px 18px}
+.srow-grid label.wide{grid-column:1/-1}
+input,select,textarea{
+  width:100%; font:14px/1.5 var(--sans); color:var(--ink); background:var(--card);
+  border:1px solid var(--hair); border-radius:11px; padding:9px 12px; outline:none;
+}
+input:focus,select:focus,textarea:focus{border-color:var(--accent)}
+select{appearance:none; -webkit-appearance:none; padding-right:36px;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14'%3E%3Cpath d='M3 5.5 7 9.5l4-4' fill='none' stroke='%235C7387' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat:no-repeat; background-position:right 12px center}
+textarea{resize:vertical; font-size:13.5px}
+.row{display:flex; gap:14px; flex-wrap:wrap; margin:12px 0}
+.row.tight{margin:10px 0 0}
+.row>label{flex:1 1 190px}
+label.block{display:block; margin-top:12px}
+button.mini{
+  font:600 12.5px var(--sans); color:var(--accent); background:color-mix(in srgb, var(--accent) 12%, var(--card));
+  border:0; border-radius:999px; padding:7px 14px; cursor:pointer;
+}
+button.mini:hover{background:var(--accent); color:var(--accentText)}
+
+.addcue{display:flex; gap:26px; align-items:center; justify-content:space-between; flex-wrap:wrap;
+  background:color-mix(in srgb, var(--card) 70%, transparent); border-radius:var(--r2); padding:16px 20px; margin-bottom:16px}
+.addcue p{font-size:13px; max-width:62ch}
+.addbox{display:flex; gap:9px; align-items:center; flex:none}
+.addbox input{width:150px}
+
+/* ---------------------------------------------------------------- shield */
+ol.steps{list-style:none; margin:0 0 34px; padding:0}
+ol.steps li{display:flex; gap:20px; padding:20px 0; border-top:1px solid var(--hair)}
+ol.steps li:last-child{border-bottom:1px solid var(--hair)}
+.sn{font-family:var(--serif); font-size:26px; color:var(--accent); flex:none; width:44px}
+ol.steps h4{font-size:17px; margin:0 0 5px}
+ol.steps p{margin:0 0 10px; color:var(--muted); max-width:78ch}
+.stepact{display:flex; gap:9px; align-items:center; flex-wrap:wrap}
+.done{font-size:12.5px; color:var(--go); font-weight:600}
+.seg{display:inline-flex; gap:3px; background:color-mix(in srgb, var(--hair) 40%, transparent); border-radius:999px; padding:3px}
+.seg button{font:600 12.5px var(--sans); border:0; background:transparent; color:var(--muted); border-radius:999px; padding:6px 13px; cursor:pointer}
+.seg button.on{background:var(--accent); color:var(--accentText)}
+.twocol{display:grid; grid-template-columns:repeat(auto-fit,minmax(310px,1fr)); gap:34px}
+ul.plain{list-style:none; margin:0; padding:0}
+ul.plain li{padding:9px 0; border-bottom:1px solid color-mix(in srgb, var(--hair) 65%, transparent); font-size:13.5px; display:flex; gap:10px; align-items:baseline; flex-wrap:wrap}
+ul.hits{list-style:none; padding:0; margin:14px 0 0}
+ul.hits>li{padding:12px 0; border-bottom:1px solid var(--hair)}
+ul.hits ul{margin:6px 0 0; padding-left:18px; font-size:13px; color:var(--muted)}
+
+/* ---------------------------------------------------------------- dispute */
+.hit{background:color-mix(in srgb, var(--accent) 7%, var(--card)); border-radius:var(--r2); padding:20px}
+pre#disputeOut{
+  white-space:pre-wrap; font-family:var(--mono); font-size:12.5px; line-height:1.72;
+  background:var(--card); border-radius:var(--r); padding:20px; margin:0 0 12px;
+  max-height:460px; overflow:auto;
+}
+.note{font-size:13.5px; color:var(--muted); border-left:2px solid var(--hair); padding-left:13px; margin:10px 0}
+.note.warn{border-color:var(--watch); color:var(--ink)}
+.note.stop{border-color:var(--stop)}
+ul.clock{list-style:none; margin:0; padding:0}
+ul.clock li{display:grid; grid-template-columns:78px 108px 1fr; gap:14px; padding:13px 0; border-top:1px solid var(--hair); align-items:baseline}
+.ct{font:700 11.5px var(--sans); letter-spacing:.11em; text-transform:uppercase; color:var(--accent)}
+.cd{font-family:var(--serif); font-size:17px}
+.cb{font-size:13px; color:var(--muted)}
+
+/* ---------------------------------------------------------------- brief */
+.lede .kick{font:700 11.5px var(--sans); letter-spacing:.22em; text-transform:uppercase; color:var(--muted); margin:0 0 14px}
+.lede .big{font-family:var(--serif); font-size:clamp(19px,2.4vw,25px); line-height:1.42; margin-bottom:16px}
+.traps{display:grid; grid-template-columns:repeat(auto-fit,minmax(310px,1fr)); gap:26px 34px}
+.trap .tn{font-family:var(--serif); font-size:22px; color:var(--accent); display:block}
+.trap h4{font-size:16.5px; margin:2px 0 6px}
+.trap p{margin:0; color:var(--muted); font-size:14px}
+.plans{display:grid; grid-template-columns:repeat(auto-fit,minmax(238px,1fr)); gap:15px; margin-top:16px}
+.plan{background:var(--card); border-radius:var(--r2); padding:20px 19px; display:flex; flex-direction:column; gap:2px}
+.plan.rec{background:var(--ink); color:var(--ground)}
+.plan.rec .pn,.plan.rec .pper,.plan.rec .pwho{color:color-mix(in srgb, var(--ground) 78%, var(--ink))}
+.plan.rec .pp{color:var(--ground)}
+.plan.rec p{color:color-mix(in srgb, var(--ground) 82%, var(--ink))}
+.plan.rec ul.plain li{border-color:color-mix(in srgb, var(--ground) 26%, transparent); color:color-mix(in srgb, var(--ground) 88%, var(--ink))}
+.pn{font:700 11.5px var(--sans); letter-spacing:.16em; text-transform:uppercase; color:var(--accent)}
+.pp{font-family:var(--serif); font-size:31px; letter-spacing:-.02em; line-height:1.1}
+.pper{font-size:12px; color:var(--muted)}
+.pwho{font-size:12.5px; font-weight:600; margin-top:6px}
+.plan p{font-size:13.5px; color:var(--muted); margin:8px 0 10px}
+.plan ul.plain li{font-size:13px}
+
+/* ---------------------------------------------------------------- progress, foot */
+#progressWrap{position:fixed; left:0; right:0; bottom:0; z-index:40; padding:14px 30px 18px;
+  background:color-mix(in srgb, var(--ground) 82%, transparent); backdrop-filter:blur(12px); border-top:1px solid var(--hair)}
+#progressWrap.off{display:none}
+#progressTrack{height:4px; background:var(--hair); border-radius:999px; overflow:hidden}
+#progressBar{height:100%; width:0; background:var(--accent); transition:width .3s}
+#progressLabel{font-size:12.5px; color:var(--muted); margin-top:8px}
+#status{font-size:13.5px; min-height:20px}
+#status.bad{color:var(--stop)}
+footer{margin-top:60px; padding-top:22px; border-top:1px solid var(--hair); font-size:12.5px; color:var(--muted)}
+footer p{max-width:80ch}
+
+@media (max-width:720px){
+  #wrap{padding:0 18px 80px}
+  nav.tabs{margin:0 -18px 20px; padding:9px 18px}
+  .cuehead{flex-direction:column}
+  .thumb{width:100%; height:150px}
+  .right-head{text-align:left}
+  .pals{justify-content:flex-start}
+  .srow-grid{grid-template-columns:1fr}
+  .spos{margin-left:0}
+}
+</style>
+</head>
+<body>
+<div id="wrap">
+
+  <header class="top">
+    <div class="brand">
+      <p class="kick">Pre-upload clearance desk</p>
+      <h1>CLEARANCE</h1>
+      <p class="sub">No film goes up uncleared. Find every sound in the cut, timecode it, and hold the paper that answers the claim.</p>
+    </div>
+    <div class="right-head">
+      <p id="filmLine"><span class="dim">No film loaded.</span></p>
+      <div class="pals" role="group" aria-label="Ground colour">
+        <button data-pal="ice" title="Ice"></button>
+        <button data-pal="clay" title="Clay"></button>
+        <button data-pal="ink" title="Ink"></button>
+      </div>
+    </div>
+  </header>
+  <hr class="rule">
+
+  <nav class="tabs" role="tablist">
+    <button id="tab-scan" data-tab="scan">Scan</button>
+    <button id="tab-cues" data-tab="cues">Cue sheet</button>
+    <button id="tab-shield" data-tab="shield">Shield</button>
+    <button id="tab-dispute" data-tab="dispute">Dispute<span class="dot"></span></button>
+    <button id="tab-brief" data-tab="brief">The brief</button>
+  </nav>
+
+  <!-- ============================================================ SCAN -->
+  <section class="view on" id="view-scan">
+    <div id="guide">
+      <div class="gh">
+        <h3>How to use it</h3>
+        <button class="mini" data-act="hideGuide">Hide this</button>
+      </div>
+      <ol>
+        <li><b>Drop the finished cut</b>The scan reads the audio on your own machine and finds every place music plays.</li>
+        <li><b>Look at the cues</b>Each cue gets a timecode and a still from the scene, so you can see which sound is which.</li>
+        <li><b>Declare each one</b>In the cue sheet, say where the sound came from and what proof you hold. The risk falls out of that.</li>
+        <li><b>Run the Shield steps</b>Hash the file, register your score, upload private, read the Copyright column, then publish.</li>
+        <li><b>Keep the pack</b>Certificate, cue sheet and hash. That is what turns a claim into an afternoon instead of a takedown.</li>
+      </ol>
+      <div class="gbtns">
+        <button class="mini" data-act="sample">Load a sample film</button>
+        <button class="mini" data-act="goCues">Go to the cue sheet</button>
+        <button class="mini" data-act="erase">Erase all local data</button>
+      </div>
+    </div>
+
+    <label id="drop">
+      <input type="file" id="file" accept="video/*,audio/*,.mp4,.mov,.mkv,.wav,.mp3,.m4a,.aac" style="display:none">
+      <span class="dh">Drop the finished cut here, or click to choose it.</span>
+      <span class="ds">The film is read inside this page. Nothing is uploaded, and no copy of your film or its soundtrack leaves this machine. If a film will not decode, export the audio from your editor as a WAV and drop that instead.</span>
+      <span class="formats">MP4 · MOV · MKV · WAV · MP3 · M4A</span>
+    </label>
+
+    <div id="progressWrap" class="off">
+      <div id="progressTrack"><div id="progressBar"></div></div>
+      <div id="progressLabel"></div>
+    </div>
+
+    <p id="status" style="margin-top:18px"></p>
+
+    <div id="scanEmpty" style="margin-top:26px">
+      <p class="dim">No film scanned yet. A cut with music in it will come back as a sound map, a list of cues with stills, and a technical pre-flight on the mix.</p>
+    </div>
+
+    <div id="scanSummary" class="tiles" style="margin-top:24px"></div>
+    <div id="scanBar"></div>
+    <div id="scanList"></div>
+    <div id="scanTech" style="margin-top:34px"></div>
+  </section>
+
+  <!-- ============================================================ CUES -->
+  <section class="view" id="view-cues">
+    <section>
+      <h3>The cue sheet</h3>
+      <p class="dim" style="max-width:80ch">Every music cue in the cut, in order. The route and the proof decide the risk, not the length of the cue. If a route is unknown, the tool assumes the worst, because that is what YouTube's matcher does.</p>
+      <div id="cueSheet"></div>
+    </section>
+
+    <section>
+      <h3>Triage the editor's sound folder</h3>
+      <p class="dim" style="max-width:80ch">Paste the listing of the folder your editor cut from, one file per line. Filenames give away downloads that never had a licence, and this is where the film that prompted this tool went wrong. Run it in the folder with <span class="mono">dir /s /b &gt; sounds.txt</span>, then paste the contents.</p>
+      <textarea id="triageIn" rows="7" placeholder="no copyright afrobeat.mp3&#10;club_ambience_final.wav&#10;prod by kay instrumental 2.mp3&#10;scene 14 radio bleed.wav"></textarea>
+      <div id="triageOut"></div>
+    </section>
+
+    <section>
+      <h3>What the risk engine is reading</h3>
+      <div class="traps" id="routeNotes"></div>
+    </section>
+  </section>
+
+  <!-- ============================================================ SHIELD -->
+  <section class="view" id="view-shield">
+    <section>
+      <h3>Before it goes public</h3>
+      <p class="dim" style="max-width:80ch">In this order. The order is the whole point: registering your own score before release is the only defence against the hijack pattern, and reading the Copyright column before publishing is the only free look at Content ID that exists.</p>
+      <div id="shieldBody"></div>
+    </section>
+  </section>
+
+  <!-- ============================================================ DISPUTE -->
+  <section class="view" id="view-dispute">
+    <section>
+      <h3>The claim arrived</h3>
+      <p class="dim" style="max-width:80ch">A claim is not a strike, and it is not the end of the film. What ends the film is answering it with nothing.</p>
+      <div id="disputeBody"></div>
+    </section>
+  </section>
+
+  <!-- ============================================================ BRIEF -->
+  <section class="view" id="view-brief">
+    <div id="briefBody"></div>
+  </section>
+
+  <footer>
+    <p><strong>CLEARANCE</strong> reads the film on your machine. No audio, no cue sheet and no film is sent anywhere, and nothing here is legal advice. A clean result is not a clearance in law: it is a record of what you checked, what you hold, and where the risk sits.</p>
+    <p class="dim">Built for the producers who had to pull a film down to find out which sound was the problem.</p>
+  </footer>
+</div>
+<script>
+/*INLINE_JS*/
+</script>
+</body>
+</html>

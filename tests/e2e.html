@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>E2E</title>
+<style>body{font:13px monospace;margin:20px}#out{white-space:pre-wrap;max-width:1000px}</style>
+</head>
+<body>
+<p id="note">running</p>
+<pre id="out"></pre>
+<iframe id="fr" width="1200" height="900" style="border:1px solid #ccc"></iframe>
+<script>
+/* Drives the real app the way a user does: fetch the film over HTTP, build a
+   File, set it on the app's own file input, dispatch change, then wait for the
+   analysis to finish and report what the app produced. */
+const params = new URLSearchParams(location.search);
+const file = params.get("f") || "tests/truth.mp4";
+const out = { file: file, started: new Date().toISOString() };
+
+function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+function post(o) {
+  return fetch("/result", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(o) });
+}
+
+(async function () {
+  try {
+    const fr = document.getElementById("fr");
+    await new Promise(function (r) { fr.onload = r; fr.src = "../index.html"; });
+    await sleep(900);
+    const w = fr.contentWindow, d = fr.contentDocument;
+    if (!w.CLR) throw new Error("app did not boot: CLR missing");
+
+    const res = await fetch("/" + file);
+    if (!res.ok) throw new Error("could not fetch " + file + ": " + res.status);
+    const blob = await res.blob();
+    out.bytes = blob.size;
+    const f = new File([blob], file.split("/").pop(), { type: blob.type || "video/mp4" });
+
+    const input = d.getElementById("file");
+    const dt = new DataTransfer();
+    dt.items.add(f);
+    input.files = dt.files;
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+
+    const t0 = Date.now();
+    let last = "";
+    while (Date.now() - t0 < 300000) {
+      await sleep(1000);
+      last = d.getElementById("status").textContent;
+      const busy = !d.getElementById("progressWrap").classList.contains("off");
+      if (last && !busy) break;
+    }
+    out.status = last;
+    out.waitedMs = Date.now() - t0;
+
+    const state = JSON.parse(w.localStorage.getItem("clearance.v1") || "{}");
+    out.cues = (state.cues || []).map(function (c) {
+      return { start: c.start, end: c.end, bedded: c.underDialogue, release: c.release, thumb: !!c.thumb };
+    });
+    out.tech = state.tech || null;
+    out.segs = (state.segs || []).map(function (s) {
+      return { type: s.type, start: Math.round(s.start * 100) / 100, end: Math.round(s.end * 100) / 100 };
+    });
+    out.tempo = state.tempo;
+    out.thumbCount = (state.cues || []).filter(function (c) { return c.thumb; }).length;
+    out.certificateLines = w.CLR.buildCertificate(state.cues || [], state.film || {}, state.tech).split("\n").length;
+    out.done = true;
+  } catch (e) {
+    out.done = true;
+    out.error = String((e && e.stack) || e);
+  }
+  document.title = "DONE";
+  document.getElementById("note").textContent = out.error ? "ERROR" : "done";
+  document.getElementById("out").textContent = JSON.stringify(out, null, 1).slice(0, 6000);
+  try { await post(out); } catch (e) {}
+})();
+</script>
+</body>
+</html>

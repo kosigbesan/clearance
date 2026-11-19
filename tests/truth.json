@@ -1,0 +1,42 @@
+{
+ "duration": 64.0,
+ "segments": [
+  {
+   "type": "speech",
+   "start": 0.0,
+   "end": 8.0
+  },
+  {
+   "type": "music",
+   "start": 8.0,
+   "end": 28.0
+  },
+  {
+   "type": "speech",
+   "start": 28.0,
+   "end": 36.0
+  },
+  {
+   "type": "music",
+   "start": 36.0,
+   "end": 56.0
+  },
+  {
+   "type": "silence",
+   "start": 56.0,
+   "end": 64.0
+  }
+ ],
+ "music": [
+  [
+   8.0,
+   28.0
+  ],
+  [
+   36.0,
+   56.0
+  ]
+ ],
+ "wav": "C:\\Users\\elled\\clearance\\tests\\truth.wav",
+ "mp4": "C:\\Users\\elled\\clearance\\tests\\truth.mp4"
+}
