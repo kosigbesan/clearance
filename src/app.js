@@ -1242,7 +1242,7 @@ function renderScan() {
     { k: "Under dialogue", v: String(f.bedded), sub: "cannot be muted out", f: "bedded" },
   ];
   sum.innerHTML = tiles.map(function (t) {
-    const active = FILTER === t.f ? " on" : "";
+    const active = (t.f && FILTER === t.f) ? " on" : "";
     return '<button class="tile' + active + ' lv-' + (t.f || "none") + '" data-filter="' + (t.f || "") + '">' +
       '<span class="tk">' + esc(t.k) + '</span><span class="tv">' + esc(t.v) + '</span>' +
       '<span class="ts">' + esc(t.sub) + '</span></button>';

@@ -69,6 +69,8 @@ nav.tabs button .dot{display:inline-block;width:6px;height:6px;border-radius:50%
 nav.tabs button.has .dot{opacity:1}
 
 /* ---------------------------------------------------------------- views */
+/* a single hide switch, so any panel can be switched off by class */
+.off{display:none}
 .view{display:none}
 .view.on{display:block; animation:in .22s ease-out}
 @keyframes in{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
@@ -1639,7 +1641,7 @@ function renderScan() {
     { k: "Under dialogue", v: String(f.bedded), sub: "cannot be muted out", f: "bedded" },
   ];
   sum.innerHTML = tiles.map(function (t) {
-    const active = FILTER === t.f ? " on" : "";
+    const active = (t.f && FILTER === t.f) ? " on" : "";
     return '<button class="tile' + active + ' lv-' + (t.f || "none") + '" data-filter="' + (t.f || "") + '">' +
       '<span class="tk">' + esc(t.k) + '</span><span class="tv">' + esc(t.v) + '</span>' +
       '<span class="ts">' + esc(t.sub) + '</span></button>';
