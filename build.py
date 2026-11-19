@@ -14,11 +14,12 @@ OUT = os.path.join(HERE, "index.html")
 
 tpl = io.open(os.path.join(SRC, "index.template.html"), encoding="utf-8").read()
 js = io.open(os.path.join(SRC, "app.js"), encoding="utf-8").read()
+mark = io.open(os.path.join(SRC, "mark.js"), encoding="utf-8").read()
 
 if "/*INLINE_JS*/" not in tpl:
     sys.exit("marker /*INLINE_JS*/ missing from the template")
 
-js_browser = js
+js_browser = mark + "\n\n" + js
 
 html = tpl.replace("/*INLINE_JS*/", js_browser)
 io.open(OUT, "w", encoding="utf-8", newline="\n").write(html)
@@ -28,9 +29,9 @@ dashes = [c for c in html if c in ("\u2014", "\u2013")]
 if dashes:
     sys.exit("em or en dash found in the built file: %d occurrence(s)" % len(dashes))
 
-for must in ("<style>", "</script>", 'id="view-scan"', 'id="view-dispute"', "makeFFT"):
+for must in ("<style>", "</script>", 'id="view-scan"', 'id="view-dispute"', "makeFFT", "embedMark", "detectMark"):
     if must not in html:
         sys.exit("built file is missing " + must)
 
 print("index.html written, %d bytes" % len(html.encode("utf-8")))
-print("script size %d bytes, template %d bytes" % (len(js_browser), len(tpl)))
+print("script size %d bytes (mark %d, app %d), template %d bytes" % (len(js_browser), len(mark), len(js), len(tpl)))

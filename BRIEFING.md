@@ -122,6 +122,124 @@ capability: a shortlist to check, not a verdict.
 
 ---
 
+## 3a. Naming the track, and what that costs
+
+The scanner says where the music is. It cannot say what the music is, because
+there is no free way to do that. So identification is an optional sidecar: one
+small Node service, no dependencies, that takes a **twelve second WAV snippet of
+a single cue** and asks a recognition catalogue what it is. Only snippets are
+sent, never the film. A ten cue film uploads about two minutes of audio in total.
+
+Two providers, both implemented:
+
+| | AudD | ACRCloud |
+|---|---|---|
+| Sign up | self serve, https://audd.io | self serve, https://acrcloud.com |
+| Auth | one API token | host, access key, secret, HMAC-SHA1 signed |
+| Free | 300 requests on signup, no card | 14 day trial |
+| Then | about $5 per month for 1,000 requests | quoted, representative around $49 for 20,000 |
+| Per film | about ten requests, so roughly $0.05 | less per request, larger commitment |
+| Catalogue | music recognition catalogue | 150 million tracks |
+
+AudD is the default because it needs one token and no sales call, and the free
+tier covers about thirty films. ACRCloud is there for a house that already has an
+account, or wants the larger catalogue and humming recognition.
+
+**Verified live, not just against a mock.** `tests/live_check.sh` posts a twelve
+second snippet of AudD's own published sample through the sidecar using AudD's
+public `test` token and gets back:
+
+```
+Everybody Wants To Rule The World / Tears For Fears
+UMC (Universal Music Catalogue) / release 2014-11-10 / offset 00:57   287 ms
+```
+
+and posts twelve seconds of the real phone video that started all this, which
+correctly comes back `ok: true, match: null` in 82 ms. A no match is an answer,
+not a failure, and the code treats it that way.
+
+The request building and response parsing are unit tested for both providers
+(70 assertions), including the ACRCloud signature checked against a vector
+computed independently in Python rather than against this code. The server
+contract is tested end to end with the provider mocked (35 assertions): health,
+a match, a no match, a provider error, a network failure, a per request provider
+override, an oversized body, and path traversal.
+
+The honest limit, which the interface states: **a catalogue match is not a
+Content ID result.** A match means the cue is a released recording and will very
+likely be claimed. No match is weak evidence, because a track can sit in Content
+ID without being in a recognition catalogue, and an unreleased score is in
+neither. Nothing outside YouTube can query Content ID.
+
+---
+
+## 3b. Provenance: making the extracted audio carry proof
+
+This is the answer to the question the producers actually ask, which is not
+"which sound is it" but "how do I stop them taking my song".
+
+You cannot. Any audio that plays can be captured, and a distributor will accept
+a ripped file. What you *can* do is make the captured audio carry proof of where
+it came from, which is what wins the dispute rather than what prevents the theft.
+
+So a mark is embedded in the score before it is mixed into the film. It is a
+spread spectrum pattern: eight narrowband carriers between 900 Hz and 5 kHz,
+each phase shift keyed by a chip sequence at 20 chips per second, both derived
+from a seed that belongs to the production. Detection is a matched filter, and
+the statistic is normalised so that audio with no mark reads a small number.
+
+Three decisions were made from measurement rather than taste:
+
+- **The carriers sit in the middle of the spectrum, not at 16 kHz**, because a
+  lossy encode throws the top octave away and the mark has to survive one.
+- **The chip sequence repeats every four seconds.** The attacker hands over an
+  excerpt, not the whole film, so the start offset is unknown. A one off sequence
+  cannot be lined up against it. With a periodic pattern the receiver only
+  searches one period. This was found by testing a four second trim, which
+  defeated the first version.
+- **The depth is 44 dB**, chosen from a sweep. The reading falls roughly linearly
+  with mark power, and the no mark floor sits near 2.5, so 44 dB still leaves a
+  margin of about twenty times.
+
+Measured, on 24 seconds of synthetic score, `node tests/mark.test.js`:
+
+| Condition | Reading |
+|---|---|
+| No mark at all | 2.16 |
+| Mark, wrong seed | 1.9 |
+| **Mark, correct seed** | **55.5** |
+| After AAC 128 kbps | 52.4 |
+| After AAC 96 kbps | 52.5 |
+| After MP3 128 kbps | 53.9 |
+| After Opus 64 kbps | 53.3 |
+| From an eight second excerpt | 17.0 |
+| After a 4 s / 7.3 s / 11.1 s trim | found |
+| After the level is raised by 7 dB | found |
+| A different film's mark, this seed | under the floor |
+
+The floor was checked against a score, a noise bed and a speech like signal, and
+against a second file carrying a different production's mark. 22 assertions.
+
+What it is not: it is not a lock, and it does not prove ownership in law. It
+proves that a suspect file carries the same pattern that was embedded in your
+score, which is a strong piece of evidence and a very awkward fact for somebody
+claiming they wrote it. The interface says exactly that, and so does the
+certificate.
+
+---
+
+## 3c. What you have to supply
+
+Nothing, for everything above the line. The scan, the cue sheet, the certificate,
+the dispute statement, the folder triage and the provenance marking all run in the
+browser with no account and no key.
+
+One credential, optional, for naming tracks: an AudD token (one line, 300 free
+requests) or the three ACRCloud values. Put it in the environment or in
+`~/.clearance/identify.json` and start the sidecar.
+
+---
+
 ## 4. The thing the industry is getting wrong
 
 The documented pattern in the Nigerian cases of the last two years is **not** a
@@ -182,21 +300,33 @@ from a sound nobody chose, and it lands on whoever owns the account.
 ## 6. Files and how to run it
 
 ```
-index.html            the whole app, one file, no build step, no CDN
-src/app.js            the source script
+index.html               the whole app, one file, no build step, no CDN
+src/app.js               the app: state, rendering, rights engine, audio engine
+src/mark.js              the provenance mark, embed and detect
 src/index.template.html  markup and styles, with an inline marker
-build.py              inlines the script into index.html and guards the no dash rule
-tests/logic.test.js   110 tests over the pure functions, including the calibration
-tests/render.test.js  55 tests that every view renders real content
-tests/gen_truth.py    builds the ground truth film
-tests/calibrate.js    prints the per second features and the confusion matrix
-tests/e2e_check.py    drives the real app in real Chrome over the ground truth
-tests/e2e_one.py      drives the real app over any one file
-BRIEFING.md           this document
+build.py                 inlines both scripts and guards the no dash rule
+server/index.js          the identification sidecar, no dependencies
+server/providers.js      AudD and ACRCloud, request building and parsing
+server/package.json      npm start, npm test
+tests/logic.test.js      164 tests over the pure functions, including the calibration
+tests/render.test.js     73 tests that every view renders real content
+tests/mark.test.js       22 tests over the provenance mark, with codec round trips
+tests/provider.test.js   70 tests over both providers, no network
+tests/server.test.js     35 tests over the sidecar contract, provider mocked
+tests/live_check.sh      a real call to AudD with their public test token
+tests/gen_truth.py       builds the ground truth film
+tests/calibrate.js       prints the per second features and the confusion matrix
+tests/e2e_check.py       drives the real app in real Chrome over the ground truth
+tests/e2e_one.py         drives the real app over any one file
+BRIEFING.md              this document
 ```
 
 ```bash
 python build.py
+node tests/mark.test.js
+node tests/provider.test.js && node tests/server.test.js
+bash tests/live_check.sh          # spends nothing, uses AudD's test token
+AUDD_API_TOKEN=xxxx node server/index.js   # then open the app and press Check the server
 python tests/build_and_run_logic_tests.py C:/Users/elled/clearance/index.html \
        C:/Users/elled/clearance/tests/logic.test.js
 python tests/build_and_run_render_tests.py C:/Users/elled/clearance/index.html \
@@ -240,3 +370,13 @@ Retrieved 19 November 2026.
     https://audd.io/resources/articles/best-apis-to-detect-copyrighted-music-in-uploads
 13. Scale of the system, over 2.2 billion claims in 2024, over 99 per cent
     automated: https://replayedstudio.com/blog/ai-music-content-id
+14. AudD recognition API, the endpoint, the parameters and the response shape:
+    https://docs.audd.io/
+15. AudD pricing, 300 free requests then about $5 per month for 1,000:
+    https://audd.io/pricing/
+16. ACRCloud Identification API, the signature string and the request fields,
+    including the official Python example this implementation follows:
+    https://docs.acrcloud.com/reference/identification-api
+    https://github.com/acrcloud/webapi_example
+17. ACRCloud pricing structure and the 14 day trial:
+    https://acrcloud.com/docs/faq/basic/understand-pricing-chart

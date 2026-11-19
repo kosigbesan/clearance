@@ -194,6 +194,9 @@ button.mini:hover{background:var(--accent); color:var(--accentText)}
 .addbox{display:flex; gap:9px; align-items:center; flex:none}
 .addbox input{width:150px}
 
+.matchrow{display:flex; align-items:center; gap:10px; flex-wrap:wrap}
+.srow-top .mini{margin-left:0}
+
 /* ---------------------------------------------------------------- shield */
 ol.steps{list-style:none; margin:0 0 34px; padding:0}
 ol.steps li{display:flex; gap:20px; padding:20px 0; border-top:1px solid var(--hair)}
@@ -345,6 +348,7 @@ footer p{max-width:80ch}
     <div id="scanBar"></div>
     <div id="scanList"></div>
     <div id="scanTech" style="margin-top:34px"></div>
+    <div id="identifyBody" style="margin-top:34px"></div>
   </section>
 
   <!-- ============================================================ CUES -->
@@ -374,6 +378,7 @@ footer p{max-width:80ch}
       <h3>Before it goes public</h3>
       <p class="dim" style="max-width:80ch">In this order. The order is the whole point: registering your own score before release is the only defence against the hijack pattern, and reading the Copyright column before publishing is the only free look at Content ID that exists.</p>
       <div id="shieldBody"></div>
+      <div id="provBody" style="margin-top:38px"></div>
     </section>
   </section>
 
@@ -383,6 +388,7 @@ footer p{max-width:80ch}
       <h3>The claim arrived</h3>
       <p class="dim" style="max-width:80ch">A claim is not a strike, and it is not the end of the film. What ends the film is answering it with nothing.</p>
       <div id="disputeBody"></div>
+      <div id="suspectBody" style="margin-top:38px"></div>
     </section>
   </section>
 
@@ -396,6 +402,8 @@ footer p{max-width:80ch}
     <p class="dim">Built for the producers who had to pull a film down to find out which sound was the problem.</p>
   </footer>
 </div>
+<input type="file" id="scoreFile" accept="audio/*,video/*,.wav,.mp3,.m4a,.aac,.flac" style="display:none">
+<input type="file" id="suspectFile" accept="audio/*,video/*,.wav,.mp3,.m4a,.aac,.flac" style="display:none">
 <script>
 /*INLINE_JS*/
 </script>

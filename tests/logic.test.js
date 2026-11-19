@@ -109,7 +109,7 @@ chk("certificate with no cues says so", C.buildCertificate([], {}, null).indexOf
 
 /* ---------------------------------------------------------------- csv */
 const csv = C.csvFor(cues, F).split("\n");
-chk("csv header", csv[0], "no,start,end,seconds,route,supplier,proof,position,risk,score,verdict");
+chk("csv header", csv[0], "no,start,end,seconds,route,supplier,proof,position,identified,identified_artist,identified_label,checked_at,checked_via,risk,score,verdict");
 chk("csv row count", csv.length, 4);
 chk("csv quotes a field with a comma", C.csvFor([mk({ source: "stock", supplier: "Emeka, editor" })], F).indexOf('"Emeka, editor"') >= 0, true);
 chk("csv names the stop", C.csvFor(cues, F).indexOf("Stop") >= 0, true);
@@ -230,6 +230,99 @@ chk("decimate by one is a pass through", C.decimate(Float32Array.from([1, 2]), 1
 const gaps = C.silentGaps([].concat(seg(0, 10, "music", 0.2), seg(10, 16, "silence", 0.0001), seg(16, 20, "music", 0.2)), 3, ctx);
 chk("a long silent stretch is found", gaps.length, 1);
 near("silence starts where it starts", gaps[0].start, 10, 0.2);
+
+/* ---------------------------------------------------------------- wav encoding */
+const wav = C.encodeWav(Float32Array.from([0, 1, -1, 0.5]), 22050);
+chk("wav length is a header plus two bytes a sample", wav.length, 44 + 8);
+const wv = new DataView(wav.buffer);
+const tag = (o) => String.fromCharCode(wav[o], wav[o + 1], wav[o + 2], wav[o + 3]);
+chk("wav starts with RIFF", tag(0), "RIFF");
+chk("wav declares WAVE", tag(8), "WAVE");
+chk("wav declares fmt", tag(12), "fmt ");
+chk("wav declares data", tag(36), "data");
+chk("wav declares PCM", wv.getUint16(20, true), 1);
+chk("wav declares mono", wv.getUint16(22, true), 1);
+chk("wav carries the sample rate", wv.getUint32(24, true), 22050);
+chk("wav carries the byte rate", wv.getUint32(28, true), 44100);
+chk("wav is sixteen bit", wv.getUint16(34, true), 16);
+chk("wav riff size is the payload plus thirty six", wv.getUint32(4, true), 36 + 8);
+chk("wav data size is the sample count times two", wv.getUint32(40, true), 8);
+chk("a full scale positive sample encodes to 32767", wv.getInt16(44 + 2, true), 32767);
+chk("a full scale negative sample encodes to -32768", wv.getInt16(44 + 4, true), -32768);
+chk("silence encodes to zero", wv.getInt16(44, true), 0);
+chk("over range input is clamped", new DataView(C.encodeWav(Float32Array.from([9]), 8000).buffer).getInt16(44, true), 32767);
+
+/* ---------------------------------------------------------------- snippets */
+const Lc = new Float32Array(1000), Rc = new Float32Array(1000);
+for (let i = 0; i < 1000; i++) { Lc[i] = 0.4; Rc[i] = 0.2; }
+const snip = C.snippetFor(Lc, Rc, 100, { start: 3, end: 5 }, 4);
+chk("a snippet is the requested length in samples", snip.length, 400);
+chk("a snippet is downmixed", Math.abs(snip[0] - 0.7) < 1e-6, true);
+chk("a snippet is levelled to a usable peak", Math.abs(Math.max.apply(null, Array.from(snip)) - 0.7) < 1e-6, true);
+chk("a snippet at the start of the file does not run off the front", C.snippetFor(Lc, null, 100, { start: 0, end: 1 }, 4).length, 400);
+chk("a mono snippet works too", C.snippetFor(Lc, null, 100, { start: 3, end: 5 }, 4).length, 400);
+chk("resampling to the same rate is a pass through", C.resampleTo(Lc, 100, 100).length, 1000);
+chk("resampling halves the length when the rate halves", C.resampleTo(Lc, 200, 100).length, 500);
+
+/* ---------------------------------------------------------------- identification text */
+const hitCue = { match: { title: "Africa", artist: "Toto", label: "Columbia" } };
+chk("a match reads as a sentence", C.matchLine(hitCue), "Matched Africa by Toto (Columbia)");
+chk("a match without an artist still reads", C.matchLine({ match: { title: "Africa" } }), "Matched Africa");
+chk("a checked and unmatched cue says so", C.matchLine({ match: false }), "No catalogue match");
+chk("a failed check says so", C.matchLine({ matchError: "boom" }), "Identification failed: boom");
+chk("an unchecked cue says nothing", C.matchLine({ match: null }), "");
+const ms = C.matchSummary([
+  { match: { title: "A" }, matchProvider: "AudD", matchAt: "now" },
+  { match: false, matchProvider: "AudD", matchAt: "now" },
+  { matchError: "boom" },
+  { match: null },
+]);
+chk("the summary counts the identified", ms.matched.length, 1);
+chk("the summary counts the unmatched", ms.noMatch, 1);
+chk("the summary counts the failures", ms.failed, 1);
+chk("the summary counts the unchecked", ms.unchecked, 1);
+chk("the summary carries the provider", ms.provider, "AudD");
+
+/* ---------------------------------------------------------------- risk from a match */
+const matched = C.riskFor(mk({ source: "stock", proof: "full", licenceScope: "full", match: { title: "Africa", artist: "Toto", label: "Columbia" } }), F);
+chk("an identified released recording stops the cue", matched.level, "stop");
+chk("identification outweighs good paperwork", matched.score >= 78, true);
+chk("the reason names the track", matched.reasons.join(" ").indexOf("Africa by Toto") >= 0, true);
+const noMatch = C.riskFor(mk({ source: "stock", proof: "full", licenceScope: "full", match: false }), F);
+const unchecked = C.riskFor(mk({ source: "stock", proof: "full", licenceScope: "full" }), F);
+chk("a checked and unmatched cue scores below an unchecked one", noMatch.score < unchecked.score, true);
+chk("a no match is stated as weak evidence", noMatch.reasons.join(" ").indexOf("not a clearance") >= 0, true);
+const failed = C.riskFor(mk({ source: "score", proof: "full", matchError: "no route" }), F);
+chk("a failed check says the cue is still unchecked", failed.reasons.join(" ").indexOf("still unchecked") >= 0, true);
+
+/* ---------------------------------------------------------------- certificate and csv carry the audit */
+const certAudit = C.buildCertificate([mk({ source: "stock", proof: "full", match: { title: "Africa", artist: "Toto", label: "Columbia" }, matchProvider: "AudD", matchAt: "2026-11-19 10:00" })],
+  { name: "T", markSeed: "seed-abc", markedAt: "2026-11-19" }, {});
+chk("the certificate names the identified track", certAudit.indexOf("Africa by Toto") >= 0, true);
+chk("the certificate prints the mark seed", certAudit.indexOf("seed-abc") >= 0, true);
+chk("the certificate explains the detection floor", certAudit.indexOf("about 2.5") >= 0, true);
+chk("the certificate says a match is not a Content ID result", certAudit.indexOf("not a Content ID result") >= 0, true);
+const csvAudit = C.csvFor([mk({ source: "stock", match: { title: "Africa", artist: "Toto", label: "Columbia" }, matchAt: "now", matchProvider: "AudD" })], F);
+chk("the csv carries the identified title", csvAudit.indexOf("Africa") >= 0, true);
+chk("the csv carries the provider", csvAudit.indexOf("AudD") >= 0, true);
+
+/* ---------------------------------------------------------------- mark seed */
+chk("a seed from a hashed film is reproducible", C.markSeedFor({ name: "F.mp4", lockedAt: "2026-11-19", hash: "abcdef0123456789" }), C.markSeedFor({ name: "F.mp4", lockedAt: "2026-11-19", hash: "abcdef0123456789" }));
+chk("the seed carries the hash", C.markSeedFor({ name: "F.mp4", hash: "abcdef0123456789" }).indexOf("abcdef0123456789") >= 0, true);
+chk("two different films get different seeds", C.markSeedFor({ name: "A.mp4", hash: "aaaa" }) === C.markSeedFor({ name: "B.mp4", hash: "bbbb" }), false);
+chk("an unhashed film still gets a seed", C.markSeedFor({ name: "A.mp4" }, "fixed").indexOf("fixed") >= 0, true);
+
+/* ---------------------------------------------------------------- the provenance mark, in the app */
+chk("the app carries the mark embedder", typeof globalThis.CLRMARK.embedMark, "function");
+chk("the app carries the mark detector", typeof globalThis.CLRMARK.detectMark, "function");
+const tiny = new Float32Array(22050 * 14);
+for (let i = 0; i < tiny.length; i++) tiny[i] = Math.sin(2 * Math.PI * 200 * i / 22050) * 0.2;
+const emb = globalThis.CLRMARK.embedMark(tiny, "seed-for-the-app", 22050);
+chk("the mark embeds without changing the length", emb.samples.length, tiny.length);
+chk("the mark is findable in the app's own module", globalThis.CLRMARK.detectMark(emb.samples, "seed-for-the-app", 22050).index > 8, true);
+chk("the mark is not findable with another seed", globalThis.CLRMARK.detectMark(emb.samples, "a-different-seed", 22050).index < 3.5, true);
+
+/* ---------------------------------------------------------------- content guards */
 
 /* ---------------------------------------------------------------- content guards */
 chk("every route has a note and a proof line", C.SOURCES.every((s) => s.note.length > 40 && s.proof.length > 20), true);

@@ -76,6 +76,36 @@ A("brief marks the recommended plan", brief.indexOf('class="plan rec"') >= 0);
 A("brief states the per title tier", brief.indexOf("Per title") >= 0);
 A("brief says nothing leaves the browser", brief.indexOf("ever leaves the browser") >= 0);
 
+/* ---------------------------------------------------------------- identify + provenance */
+const ident = el("identifyBody");
+A("the identify panel rendered", ident.indexOf("Name the tracks") >= 0);
+A("the identify panel carries the server address", ident.indexOf('id="srvUrl"') >= 0);
+A("the identify panel offers the batch action", ident.indexOf('data-act="identifyAll"') >= 0);
+A("the identify panel states the honest limit", ident.indexOf("No match is weak evidence") >= 0);
+A("the identify panel counts the outcomes", ident.indexOf("Unchecked") >= 0);
+
+const prov = el("provBody");
+A("the provenance panel rendered", prov.indexOf("Provenance") >= 0);
+A("provenance explains the mark is not a lock", prov.indexOf("not a lock") >= 0);
+A("provenance offers marking a score", prov.indexOf('data-act="pickScore"') >= 0);
+A("provenance shows the seed field", prov.indexOf('id="markSeed"') >= 0);
+A("provenance states the measured detection figures", prov.indexOf("floor of two and a half") >= 0);
+
+const susp = el("suspectBody");
+A("the suspect panel rendered", susp.indexOf("Did this audio come out of my film?") >= 0);
+A("the suspect panel offers a file", susp.indexOf('data-act="pickSuspect"') >= 0);
+A("the suspect panel offers nothing until something is checked", susp.indexOf("Nothing checked yet") >= 0);
+C.getState().suspect = { name: "suspect.mp3", at: "2026-11-19 11:00", index: 41.2, level: "stop", verdict: "Mark found, strongly", seconds: 187, seed: "s" };
+C.renderSuspect();
+const susp2 = el("suspectBody");
+A("a suspect result renders a reading", susp2.indexOf("41.2") >= 0);
+A("a suspect result states the verdict", susp2.indexOf("Mark found, strongly") >= 0);
+A("a suspect result says the mark places the audio in the film", susp2.indexOf("places its audio inside your film") >= 0);
+C.getState().suspect = { name: "clean.mp3", at: "2026-11-19 11:01", index: 2.1, level: "go", verdict: "No mark", seconds: 90, seed: "s" };
+C.renderSuspect();
+A("a negative reading is not overclaimed", el("suspectBody").indexOf("not proof the audio is not yours") >= 0);
+A("the page carries both hidden file inputs", html.indexOf('id="scoreFile"') >= 0 && html.indexOf('id="suspectFile"') >= 0);
+
 /* ---------------------------------------------------------------- the film line */
 const fl = el("filmLine");
 A("film line names the file", fl.indexOf("Behind Closed Doors") >= 0);

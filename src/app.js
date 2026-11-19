@@ -292,6 +292,20 @@ function riskFor(decl, film) {
   if (src.id === "live") {
     reasons.push("The publisher owns the composition even where you own the recording. Performers cannot grant you the rights.");
   }
+  /* An identification is the strongest single fact available about a cue, so
+     it outweighs the paperwork either way. */
+  if (decl.match && typeof decl.match === "object") {
+    score = Math.max(score + 34, 78);
+    reasons.push("Identified as a released recording: " + (decl.match.title || "untitled") +
+      (decl.match.artist ? " by " + decl.match.artist : "") +
+      (decl.match.label ? ", " + decl.match.label : "") +
+      ". A released recording is almost certainly registered with Content ID. Replace it, or hold a licence that names this production.");
+  } else if (decl.match === false) {
+    score -= 9;
+    reasons.push("Checked against the catalogue and not identified. That is a point in your favour, but it is not a clearance: a track can sit in Content ID without being in a recognition catalogue, and an unreleased score is in neither.");
+  } else if (decl.matchError) {
+    reasons.push("The catalogue check did not complete, so this cue is still unchecked. Do not read silence as a clean result.");
+  }
   if (src.id === "ai" && decl.cid !== true) {
     reasons.push("AI audio is usually not in Content ID as your reference, so you cannot pre-empt a hijacker with your own claim. Keep the generation receipts.");
   }
@@ -457,9 +471,38 @@ function buildCertificate(cues, film, tech) {
       if (c.supplier) L.push("      supplied   " + c.supplier);
       if (c.proofRef) L.push("      proof      " + c.proofRef);
       L.push("      position   " + (c.underDialogue ? "under dialogue, cannot be muted out" : "exposed, can be muted or trimmed"));
+      if (c.match && typeof c.match === "object") {
+        L.push("      identified " + (c.match.title || "untitled") + (c.match.artist ? " by " + c.match.artist : "") +
+          (c.match.label ? ", " + c.match.label : "") + (c.match.releaseDate ? ", " + c.match.releaseDate : "") +
+          "  (via " + (c.matchProvider || "catalogue") + ", " + (c.matchAt || "") + ")");
+      } else if (c.match === false) {
+        L.push("      identified no catalogue match, checked " + (c.matchAt || ""));
+      } else if (c.matchError) {
+        L.push("      identified check failed: " + c.matchError);
+      }
       L.push("");
     });
   }
+  L.push("IDENTIFICATION");
+  const ms = matchSummary(rows);
+  if (!ms.matched.length && !ms.noMatch && !ms.failed) {
+    L.push("  Not checked against a music catalogue. A cue that is a released recording");
+    L.push("  will be claimed whether or not it was checked here.");
+  } else {
+    L.push("  Checked against a music catalogue on " + (ms.at || "[date]") + " via " + (ms.provider || "[provider]") + ".");
+    L.push("  " + ms.matched.length + " identified as released recordings, " + ms.noMatch + " not identified, " + ms.failed + " failed.");
+    L.push("  A catalogue match is not a Content ID result, and no match is not a clearance.");
+  }
+  if (film.markSeed) {
+    L.push("");
+    L.push("PROVENANCE");
+    L.push("  Mark seed      " + film.markSeed);
+    L.push("  Marked         " + (film.markedAt || "[date]"));
+    L.push("  Method         8 carriers, 900 to 5000 Hz, 20 chips per second, 4 second");
+    L.push("                 repeating pattern, 44 dB below the programme");
+    L.push("  Detection      audio with no mark reads about 2.5; above 20 is a strong match");
+  }
+  L.push("");
   L.push("TECHNICAL");
   L.push("  Integrated loudness   " + (tech && tech.lufs != null ? tech.lufs.toFixed(1) + " LUFS" : "not measured"));
   L.push("  Sample peak           " + (tech && tech.peak != null ? tech.peak.toFixed(1) + " dBFS" : "not measured"));
@@ -478,7 +521,7 @@ function buildCertificate(cues, film, tech) {
 /* Export the cue sheet as CSV for the editor, the aggregator or a lawyer. */
 function csvFor(cues, film) {
   film = film || {};
-  const head = ["no", "start", "end", "seconds", "route", "supplier", "proof", "position", "risk", "score", "verdict"];
+  const head = ["no", "start", "end", "seconds", "route", "supplier", "proof", "position", "identified", "identified_artist", "identified_label", "checked_at", "checked_via", "risk", "score", "verdict"];
   const out = [head.join(",")];
   (cues || []).slice().sort(function (a, b) { return a.start - b.start; }).forEach(function (c, i) {
     const r = riskFor(c, film);
@@ -487,6 +530,10 @@ function csvFor(cues, film) {
       i + 1, fmtTime(c.start), fmtTime(c.end), (c.end - c.start).toFixed(1),
       src ? src.label : "NOT DECLARED", c.supplier || "", c.proofRef || "",
       c.underDialogue ? "under dialogue" : "exposed",
+      c.match && typeof c.match === "object" ? (c.match.title || "") : (c.match === false ? "no match" : (c.matchError ? "check failed" : "not checked")),
+      c.match && typeof c.match === "object" ? (c.match.artist || "") : "",
+      c.match && typeof c.match === "object" ? (c.match.label || "") : "",
+      c.matchAt || "", c.matchProvider || "",
       LEVEL_LABEL[r.level], r.score, verdictLine(c, r),
     ].map(function (v) {
       const s = String(v == null ? "" : v);
@@ -534,6 +581,102 @@ function lufsVerdict(lufs, peak) {
       " dBFS, and anything above 0 clips after lossy encoding. Leave headroom before upload.");
   }
   return { level: level, label: label, notes: notes };
+}
+
+/* ------------------------------------------------------------------ 3b. audio helpers */
+
+/* A 16 bit mono RIFF WAV. Needed because the identification services take a
+   file, and building one here means no ffmpeg on the producer's machine. */
+function encodeWav(samples, rate) {
+  const n = samples.length;
+  const buf = new ArrayBuffer(44 + n * 2);
+  const v = new DataView(buf);
+  const wr = function (o, str) { for (let i = 0; i < str.length; i++) v.setUint8(o + i, str.charCodeAt(i)); };
+  wr(0, "RIFF"); v.setUint32(4, 36 + n * 2, true); wr(8, "WAVE");
+  wr(12, "fmt "); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  wr(36, "data"); v.setUint32(40, n * 2, true);
+  for (let i = 0; i < n; i++) {
+    const x = samples[i] < -1 ? -1 : (samples[i] > 1 ? 1 : samples[i]);
+    v.setInt16(44 + i * 2, x < 0 ? x * 0x8000 : x * 0x7fff, true);
+  }
+  return new Uint8Array(buf);
+}
+
+/* Twelve seconds centred on a cue, downmixed and levelled. The window runs past
+   the cue on purpose: recognisers want about ten seconds and a three second
+   sting will not be identified whatever we do. Twelve is also the most ACRCloud
+   looks at, so nothing longer is worth sending. */
+function snippetFor(L, R, sr, cue, seconds) {
+  const dur = seconds || 12;
+  const centre = (cue.start + cue.end) / 2;
+  const start = Math.max(0, centre - dur / 2);
+  const i0 = Math.floor(start * sr);
+  const i1 = Math.min(L.length, Math.floor((start + dur) * sr));
+  const n = Math.max(0, i1 - i0);
+  const out = new Float32Array(n);
+  let peak = 0;
+  for (let i = 0; i < n; i++) {
+    const v = R ? (L[i0 + i] + R[i0 + i]) / 2 : L[i0 + i];
+    out[i] = v;
+    const a = v < 0 ? -v : v;
+    if (a > peak) peak = a;
+  }
+  /* Level it. A cue mixed low will not be recognised otherwise, and this
+     changes nothing about what the recogniser hears. */
+  if (peak > 1e-6) {
+    const g = 0.7 / peak;
+    for (let i = 0; i < n; i++) out[i] *= g;
+  }
+  return out;
+}
+
+function resampleTo(samples, from, to) {
+  if (from === to) return samples;
+  const ratio = from / to;
+  const n = Math.floor(samples.length / ratio);
+  const out = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const p = i * ratio, i0 = Math.floor(p), f = p - i0;
+    out[i] = (samples[i0] || 0) * (1 - f) + (samples[i0 + 1] || 0) * f;
+  }
+  return out;
+}
+
+/* What a cue's identification came to, in one line. */
+function matchLine(cue) {
+  if (!cue) return "";
+  if (cue.matchError) return "Identification failed: " + cue.matchError;
+  if (cue.match === false) return "No catalogue match";
+  if (cue.match) {
+    const m = cue.match;
+    const bits = [m.title || "untitled"];
+    if (m.artist) bits.push("by " + m.artist);
+    if (m.label) bits.push("(" + m.label + ")");
+    return "Matched " + bits.join(" ");
+  }
+  return "";
+}
+
+function matchSummary(cues) {
+  const list = cues || [];
+  const out = { matched: [], noMatch: 0, failed: 0, unchecked: 0, provider: null, at: null };
+  list.forEach(function (c) {
+    if (c.match && typeof c.match === "object") { out.matched.push(c); out.provider = out.provider || c.matchProvider; out.at = out.at || c.matchAt; }
+    else if (c.match === false) { out.noMatch++; out.provider = out.provider || c.matchProvider; out.at = out.at || c.matchAt; }
+    else if (c.matchError) out.failed++;
+    else out.unchecked++;
+  });
+  return out;
+}
+
+/* The seed for a production's mark. Derived from the file hash where there is
+   one, so it is reproducible, and random otherwise. */
+function markSeedFor(film, random) {
+  film = film || {};
+  if (film.hash) return (film.name || "film") + "|" + film.lockedAt + "|" + film.hash.slice(0, 24);
+  const r = random || (Date.now().toString(36) + Math.floor(Math.random() * 1e9).toString(36));
+  return (film.name || "film") + "|" + r;
 }
 
 /* ------------------------------------------------------------------ 4. audio engine */
@@ -1070,6 +1213,11 @@ function silentGaps(frames, minDur, ctx) {
 
 /* ------------------------------------------------------------------ 6. state */
 
+/* Twelve second mono snippets of each cue, held in memory for the session
+   only. They are what gets sent for identification, never the film. */
+let SNIPPETS = {};
+let SERVER = null;
+
 let S = {
   version: VERSION,
   film: { name: "", channel: "", size: 0, duration: 0, sr: 0, hash: "", lockedAt: "", scoreRegistered: null },
@@ -1080,12 +1228,19 @@ let S = {
   analysis: null,
   triage: null,
   claim: { text: "", matchTime: "", claimant: "", asset: "", policy: "", basis: "licence", claimDate: "", cueId: null },
-  settings: { palette: "ice", guideHidden: false },
+  settings: { palette: "ice", guideHidden: false, identify: { url: "http://localhost:8787", auto: true } },
+  server: null,
+  audit: null,
+  provenance: null,
+  suspect: null,
 };
 
 function save() {
   try {
     const copy = JSON.parse(JSON.stringify(S));
+    /* Snippets are megabytes of audio. They live in memory for the session and
+       are never written anywhere. */
+    copy.cues.forEach(function (c) { delete c.pcm; });
     if (copy.cues.length > 80) {
       copy.cues = copy.cues.slice(0, 80);
       copy.cues.forEach(function (c) { delete c.thumb; });
@@ -1109,7 +1264,8 @@ function load() {
     const got = JSON.parse(raw);
     if (!got || got.version !== VERSION) return false;
     S = Object.assign(S, got);
-    S.settings = Object.assign({ palette: "ice", guideHidden: false }, S.settings || {});
+    S.settings = Object.assign({ palette: "ice", guideHidden: false, identify: { url: "http://localhost:8787", auto: true } }, S.settings || {});
+    S.settings.identify = Object.assign({ url: "http://localhost:8787", auto: true }, S.settings.identify || {});
     S.claim = Object.assign({ text: "", matchTime: "", claimant: "", asset: "", policy: "", basis: "licence", claimDate: "", cueId: null }, S.claim || {});
     return true;
   } catch (e) { return false; }
@@ -1121,6 +1277,10 @@ function eraseAll() {
   S.tech = null;
   S.segs = [];
   S.triage = null;
+  SNIPPETS = {};
+  S.audit = null;
+  S.provenance = null;
+  S.suspect = null;
   S.film = { name: "", channel: "", size: 0, duration: 0, sr: 0, hash: "", lockedAt: "", scoreRegistered: null };
   S.claim = { text: "", matchTime: "", claimant: "", asset: "", policy: "", basis: "licence", claimDate: "", cueId: null };
   render();
@@ -1167,6 +1327,170 @@ function show(v, silent) {
   render();
 }
 
+function serverUrl() {
+  const u = (S.settings.identify && S.settings.identify.url) || "";
+  return u.replace(/\/+$/, "");
+}
+
+async function serverHealth() {
+  const url = serverUrl();
+  if (!url) return { ok: false, ready: false, error: "No identification server is set." };
+  try {
+    const r = await fetch(url + "/health");
+    const j = await r.json();
+    j.ok = true;
+    S.server = j;
+    save();
+    return j;
+  } catch (e) {
+    S.server = { ok: false, ready: false, error: "Could not reach " + url + ". Start the sidecar, or check the address. (" + ((e && e.message) || e) + ")" };
+    save();
+    return S.server;
+  }
+}
+
+/* Send twelve seconds of one cue and keep whatever comes back. */
+async function identifyCue(cue) {
+  const url = serverUrl();
+  if (!url) { cue.matchError = "No identification server is set."; render(); return false; }
+  const pcm = SNIPPETS[cue.id];
+  if (!pcm) { cue.matchError = "The snippet is no longer in memory. Drop the film again."; render(); return false; }
+  const rate = (S.tech && S.tech.analysisRate) || 22050;
+  cue.match = null; cue.matchError = ""; cue.matchAt = null; cue.matchProvider = null;
+  try {
+    const wav = encodeWav(pcm, rate);
+    const r = await fetch(url + "/identify", {
+      method: "POST",
+      headers: { "Content-Type": "audio/wav" },
+      body: wav,
+    });
+    const j = await r.json();
+    cue.matchAt = nowStamp();
+    cue.matchProvider = j.providerLabel || "catalogue";
+    cue.matchSeconds = pcm.length / rate;
+    if (j.ok && j.match) cue.match = j.match;
+    else if (j.ok) cue.match = false;
+    else cue.matchError = j.error || "Identification failed.";
+  } catch (e) {
+    cue.matchError = String((e && e.message) || e);
+  }
+  save();
+  render();
+  return !cue.matchError;
+}
+
+async function identifyAll() {
+  const list = S.cues.slice().sort(function (a, b) { return a.start - b.start; });
+  if (!list.length) { status("Nothing to identify yet. Scan a film first."); return; }
+  const withSnippets = list.filter(function (c) { return !!SNIPPETS[c.id]; });
+  if (!withSnippets.length) {
+    status("The snippets are held in memory only and are gone after a reload. Drop the film again and the scan rebuilds them.", true);
+    return;
+  }
+  const h = await serverHealth();
+  if (!h.ready) {
+    status(h.error || ((h.providerLabel || "The provider") + " is not configured. Missing " + (h.missing || []).join(", ") + "."), true);
+    render();
+    return;
+  }
+  let done = 0, matched = 0;
+  for (let i = 0; i < withSnippets.length; i++) {
+    status("Naming track " + (i + 1) + " of " + withSnippets.length + "...");
+    await identifyCue(withSnippets[i]);
+    done++;
+    if (withSnippets[i].match) matched++;
+  }
+  S.audit = { at: nowStamp(), provider: h.providerLabel, checked: done, matched: matched };
+  save();
+  render();
+  status(done + " cue" + (done === 1 ? "" : "s") + " checked against the catalogue. " + matched +
+    " identified as released recording" + (matched === 1 ? "" : "s") + ". " +
+    "A match is not a Content ID result and no match is not a clearance.");
+}
+
+function renderIdentify() {
+  const el = $("identifyBody");
+  if (!el) return;
+  const url = (S.settings.identify && S.settings.identify.url) || "";
+  const srv = S.server;
+  const ms = matchSummary(S.cues);
+  let state;
+  if (!url) state = "No identification server is set.";
+  else if (!srv) state = "Not checked yet. The scan works with no server at all; this is the optional part.";
+  else if (!srv.ok) state = srv.error || "Could not reach the server.";
+  else if (srv.ready) state = "Ready. Provider: " + srv.providerLabel + ". Only twelve second snippets of each cue are sent, never the film.";
+  else state = srv.providerLabel + " is not configured on the server. Missing: " + (srv.missing || []).join(", ") + ". Set " + (srv.keys || "") + " and restart it.";
+  el.innerHTML =
+    '<h3>Name the tracks</h3>' +
+    '<p class="dim" style="max-width:84ch">Optional, and the only part of this tool that talks to a network. It sends twelve seconds of each cue to a music recognition catalogue and comes back with a title. A match means the cue is a released recording and will very likely be claimed. No match is weak evidence, not a clearance, because a track can sit in Content ID without being in a recognition catalogue. Nothing outside YouTube can query Content ID itself.</p>' +
+    '<div class="row">' +
+    '<label><span class="lab">Identification server</span><input id="srvUrl" value="' + esc(url) + '" placeholder="http://localhost:8787"></label>' +
+    '<label style="flex:0 0 auto"><span class="lab">After a scan</span><span class="seg">' +
+    '<button class="' + (S.settings.identify.auto ? "on" : "") + '" data-auto="1">Name them</button>' +
+    '<button class="' + (S.settings.identify.auto ? "" : "on") + '" data-auto="0">Ask me</button>' +
+    '</span></label>' +
+    '</div>' +
+    '<div class="row tight">' +
+    '<button class="mini" data-act="checkServer">Check the server</button>' +
+    '<button class="mini" data-act="identifyAll">Name every cue</button>' +
+    '<button class="mini" data-act="serverHelp">How to start it</button>' +
+    '</div>' +
+    '<p class="note">' + esc(state) + '</p>' +
+    (S.cues.length ? '<div class="tiles small">' +
+      tile("Identified", String(ms.matched.length), ms.matched.length ? "released recordings" : "none", ms.matched.length ? "stop" : "none") +
+      tile("No match", String(ms.noMatch), "checked, not identified", ms.noMatch ? "go" : "none") +
+      tile("Failed", String(ms.failed), "could not be checked", ms.failed ? "watch" : "none") +
+      tile("Unchecked", String(ms.unchecked), "not sent anywhere", ms.unchecked ? "watch" : "none") +
+      '</div>' : "") +
+    (S.cues.length && S.cues.some(function (c) { return !SNIPPETS[c.id]; })
+      ? '<p class="note warn">The snippets live in memory for the session only, so after a reload they are gone. Drop the film again and the scan rebuilds them.</p>' : "");
+}
+
+function renderProvenance() {
+  const el = $("provBody");
+  if (!el) return;
+  const p = S.provenance || {};
+  const seed = p.seed || S.film.markSeed || "";
+  el.innerHTML =
+    '<h3>Provenance</h3>' +
+    '<p style="max-width:84ch">You cannot stop somebody lifting your soundtrack off the film. Any audio that plays can be captured. What you can do is make the captured audio carry proof of where it came from. Mark the score before it is mixed in, and hand the marked file to the editor instead of the clean one.</p>' +
+    '<p class="dim" style="max-width:84ch">The mark is a spread spectrum pattern about 44 dB under the programme, so it is inaudible in a mix. In the tests it reads around fifty against a floor of two and a half after a 128 kbps encode, about seventeen from an eight second excerpt, and it survives a level change and a trim. It is a forensic mark, not a lock.</p>' +
+    '<div class="row">' +
+    '<label><span class="lab">Mark seed, the key to the mark</span><input id="markSeed" value="' + esc(seed) + '" placeholder="generated from the file hash when you scan the film"></label>' +
+    '</div>' +
+    '<div class="row tight">' +
+    '<button class="mini" data-act="pickScore">Mark a score file</button>' +
+    '<button class="mini" data-act="makeSeed">Generate a seed</button>' +
+    '<button class="mini" data-act="copySeed">Copy the seed</button>' +
+    '</div>' +
+    (p.file
+      ? '<p class="note">Marked <span class="mono">' + esc(p.file) + '</span> on ' + esc(p.at) + ' at ' + esc(String(p.depthDb)) + ' dB and downloaded the marked file. Lay it over the film in the edit, and register it with a distributor before the film goes public.</p>'
+      : '<p class="dim">No score marked yet.</p>') +
+    '<p class="note warn">The seed is the key. Without it nobody, including you, can find the mark. It is printed on the certificate, so the certificate is what you keep.</p>';
+}
+
+function renderSuspect() {
+  const el = $("suspectBody");
+  if (!el) return;
+  const s2 = S.suspect;
+  el.innerHTML =
+    '<h3>Did this audio come out of my film?</h3>' +
+    '<p style="max-width:84ch">When a stranger releases your soundtrack and claims your film, this is the question that decides the dispute. Drop the suspect file, or the release as you downloaded it, and the mark is looked for inside it.</p>' +
+    '<div class="row tight">' +
+    '<button class="mini" data-act="pickSuspect">Choose the suspect file</button>' +
+    '</div>' +
+    (s2
+      ? '<div class="tiles small">' +
+        tile("Reading", s2.index.toFixed(1), "the floor is about 2.5", s2.level) +
+        tile("Verdict", s2.verdict, s2.index >= 8 ? "your mark is in it" : "no mark found", s2.level) +
+        tile("Length", (s2.seconds ? Math.round(s2.seconds) + "s" : "-"), esc(String(s2.name).slice(0, 30)), "none") +
+        '</div>' +
+        '<p class="note">Checked ' + esc(s2.at) + '. ' + (s2.index >= 8
+          ? "The pattern embedded in your score is present in that file, which places its audio inside your film. Put this reading, the seed and the certificate in front of whoever needs to see it."
+          : "The mark was not found. That is not proof the audio is not yours. A different mark, a re-recorded or re-mixed version, or a heavily processed excerpt would each need a fresh look.") + '</p>'
+      : '<p class="dim">Nothing checked yet. Mark a score first, in the Shield view, so there is a mark to look for.</p>');
+}
+
 function renderRouteNotes() {
   const el = $("routeNotes");
   if (!el) return;
@@ -1182,6 +1506,9 @@ function render() {
   renderScan();
   renderCues();
   renderRouteNotes();
+  renderIdentify();
+  renderProvenance();
+  renderSuspect();
   renderShield();
   renderDispute();
   renderBrief();
@@ -1331,10 +1658,15 @@ function cueCard(c) {
     (c.underDialogue ? '<span class="pill bed">Under dialogue</span>' : '<span class="pill exp">Exposed</span>') +
     (c.release != null ? '<span class="pill soft">Release likeness ' + c.release + '</span>' : "") +
     (c.manual ? '<span class="pill soft">Placed by hand</span>' : "") +
+    (c.match && typeof c.match === "object" ? '<span class="pill stop">Identified</span>' : "") +
+    (c.match === false ? '<span class="pill go">No match</span>' : "") +
+    (c.matchError ? '<span class="pill watch">Check failed</span>' : "") +
     '</div>' +
     '<p class="verdict">' + esc(verdictLine(c, r)) + '</p>' +
     '<p class="route"><span class="lab">Route</span> ' + esc(src ? src.label : "Not declared yet") +
     (c.supplier ? '<span class="sep">/</span><span class="lab">Supplied by</span> ' + esc(c.supplier) : "") + '</p>' +
+    (matchLine(c) ? '<p class="route"><span class="lab">Catalogue</span> ' + esc(matchLine(c)) +
+      (c.matchAt ? '<span class="sep">/</span>' + esc(c.matchAt) + (c.matchProvider ? " via " + esc(c.matchProvider) : "") : "") + '</p>' : "") +
     (r.reasons.length ? '<ul class="reasons">' + r.reasons.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join("") + '</ul>' : "") +
     '</div></div>' +
     '</article>';
@@ -1416,6 +1748,10 @@ function renderCues() {
       '<span class="sdur">' + esc(fmtLong(c.end - c.start)) + '</span>' +
       levelPill(r.level) +
       '<span class="spos">' + (c.manual ? "placed by hand" : (c.underDialogue ? "under dialogue" : "exposed")) + '</span>' +
+      (c.match && typeof c.match === "object" ? '<span class="pill stop">Identified</span>' : "") +
+      (c.match === false ? '<span class="pill go">No match</span>' : "") +
+      (c.matchError ? '<span class="pill watch">Failed</span>' : "") +
+      '<button class="mini" data-act="identifyOne" data-cueid="' + esc(c.id) + '">Name it</button>' +
       '</div>' +
       '<div class="srow-grid">' +
       '<label><span class="lab">Route</span><select data-field="source">' + opts + '</select></label>' +
@@ -1643,6 +1979,14 @@ async function analyse(file, opts) {
     };
   });
 
+  /* Keep a twelve second snippet per cue for identification. Held in memory
+     only; it is never written to storage and never sent unless the producer
+     asks for an identification. */
+  SNIPPETS = {};
+  cues.forEach(function (c) {
+    try { SNIPPETS[c.id] = snippetFor(ch.L, ch.R, ch.sr, c, 12); } catch (e) {}
+  });
+
   say("Measuring loudness and peaks", 0.86);
   const tech = peakAndCorr(ch.L, ch.R);
   tech.lufs = loudness(ch.L, ch.R, ch.sr);
@@ -1792,6 +2136,9 @@ function wire() {
     input.addEventListener("change", function () {
       if (input.files && input.files[0]) run(input.files[0]);
     });
+    const sf = $("scoreFile"), xf = $("suspectFile");
+    if (sf) sf.addEventListener("change", function () { if (sf.files && sf.files[0]) markScore(sf.files[0]); });
+    if (xf) xf.addEventListener("change", function () { if (xf.files && xf.files[0]) verifySuspect(xf.files[0]); });
   }
 
   document.addEventListener("click", function (e) {
@@ -1804,6 +2151,12 @@ function wire() {
     if (f !== null && f !== undefined && t.classList.contains("tile")) {
       FILTER = (!f || FILTER === f) ? null : f;
       renderScan();
+      return;
+    }
+    const auto = t.getAttribute && t.getAttribute("data-auto");
+    if (auto !== null && auto !== undefined && auto !== "") {
+      S.settings.identify.auto = auto === "1";
+      save(); renderIdentify();
       return;
     }
     const reg = t.getAttribute && t.getAttribute("data-reg");
@@ -1832,6 +2185,15 @@ function wire() {
       }
       return;
     }
+    if (t.id === "srvUrl") {
+      S.settings.identify.url = t.value.trim();
+      S.server = null;
+      save();
+      clearTimeout(t._t);
+      t._t = setTimeout(function () { renderIdentify(); }, 500);
+      return;
+    }
+    if (t.id === "markSeed") { S.film.markSeed = t.value.trim(); save(); return; }
     if (t.id === "claimBasis") { S.claim.basis = t.value; save(); renderDispute(); }
     if (t.id === "claimDate") { S.claim.claimDate = t.value; save(); renderDispute(); }
   });
@@ -1867,6 +2229,32 @@ function wire() {
 }
 
 function doAct(act, el) {
+  if (act === "checkServer") return checkServerNow();
+  if (act === "identifyAll") return identifyAll();
+  if (act === "identifyOne") {
+    const id = el && el.getAttribute("data-cueid");
+    const cue = S.cues.filter(function (c) { return c.id === id; })[0];
+    if (!cue) return;
+    status("Sending twelve seconds of " + fmtTime(cue.start) + "...");
+    return identifyCue(cue).then(function (ok) {
+      status(ok ? matchLine(cue) + " at " + fmtTime(cue.start) + "." : "Could not identify that cue: " + cue.matchError, !ok);
+    });
+  }
+  if (act === "serverHelp") return showServerHelp();
+  if (act === "pickScore") { const f = $("scoreFile"); if (f) f.click(); return; }
+  if (act === "pickSuspect") { const f = $("suspectFile"); if (f) f.click(); return; }
+  if (act === "makeSeed") {
+    const seed = markSeedFor(S.film, Date.now().toString(36) + Math.floor(Math.random() * 1e9).toString(36));
+    S.film.markSeed = seed;
+    S.provenance = Object.assign({}, S.provenance || {}, { seed: seed });
+    save(); renderProvenance();
+    status("New seed generated. Keep it with the certificate.");
+    return;
+  }
+  if (act === "copySeed") {
+    const seed = (S.provenance && S.provenance.seed) || S.film.markSeed || "";
+    return copyText(seed);
+  }
   if (act === "hash") return hashFilm();
   if (act === "printCert") return printBlock(buildCertificate(S.cues, S.film, S.tech), "Clearance certificate");
   if (act === "csv") return download(csvFor(S.cues, S.film), (S.film.name || "film") + " cue sheet.csv", "text/csv");
@@ -1891,6 +2279,105 @@ function doAct(act, el) {
   if (act === "erase") return eraseAll();
   if (act === "hideGuide") { S.settings.guideHidden = true; save(); renderGuide(); return; }
   if (act === "showGuide") { S.settings.guideHidden = false; save(); renderGuide(); return; }
+}
+
+async function checkServerNow() {
+  status("Asking the identification server...");
+  const h = await serverHealth();
+  renderIdentify();
+  status(h.ready
+    ? "Server ready. Provider: " + h.providerLabel + "."
+    : (h.error || (h.providerLabel + " is not configured. Missing " + (h.missing || []).join(", ") + ".")), !h.ready);
+}
+
+function showServerHelp() {
+  const url = serverUrl() || "http://localhost:8787";
+  printBlock(
+    "STARTING THE IDENTIFICATION SIDECAR\n\n" +
+    "The app runs entirely in the browser, so it can never hold an API token. The sidecar is\n" +
+    "the one small service that can. It has no dependencies.\n\n" +
+    "  1. Get a token.\n\n" +
+    "     AudD        sign up at https://audd.io . 300 requests are free, no card, then\n" +
+    "                 about $5 per month for 1,000 requests. One film is about ten.\n" +
+    "     ACRCloud    sign up at https://acrcloud.com . 14 day trial, then quoted.\n" +
+    "                 You need the host, the access key and the access secret from the console.\n\n" +
+    "  2. Start the server, from the project folder.\n\n" +
+    "     AUDD_API_TOKEN=your_token node server/index.js\n\n" +
+    "     or, for ACRCloud,\n\n" +
+    "     ACRCLOUD_HOST=identify-eu-west-1.acrcloud.com \\\n" +
+    "     ACRCLOUD_ACCESS_KEY=your_key ACRCLOUD_ACCESS_SECRET=your_secret \\\n" +
+    "     node server/index.js\n\n" +
+    "     Or put them in a file so you never type them again:\n" +
+    "     ~/.clearance/identify.json\n" +
+    '     { "IDENTIFY_PROVIDER": "audd", "AUDD_API_TOKEN": "your_token" }\n\n' +
+    "  3. Put the address in the box, " + url + ", and press Check the server.\n\n" +
+    "Only twelve second snippets of each cue are sent, never the film. A ten cue film is about\n" +
+    "two minutes of audio and about ten requests.\n\n" +
+    "A catalogue match is not a Content ID result. A match means a released recording and a\n" +
+    "likely claim. No match is weak evidence: a track can sit in Content ID without being in a\n" +
+    "recognition catalogue, and an unreleased score is in neither.",
+    "Starting the identification server");
+}
+
+/* Mark a score file and hand back the marked version to lay over the film. */
+async function markScore(file) {
+  status("Reading " + file.name);
+  try {
+    const audio = await decodeFile(file);
+    const ch = channels(audio);
+    const mono = ch.R ? downmix(ch.L, ch.R) : ch.L;
+    const seed = (S.provenance && S.provenance.seed) || S.film.markSeed || markSeedFor(S.film);
+    const res = CLRMARK.embedMark(mono, seed, ch.sr, {});
+    const wav = encodeWav(res.samples, ch.sr);
+    S.provenance = { seed: seed, at: nowStamp(), file: file.name, rate: ch.sr, depthDb: res.depthDb, bytes: wav.length };
+    S.film.markSeed = seed;
+    S.film.markedAt = S.provenance.at;
+    save();
+    render();
+    downloadBytes(wav, file.name.replace(/\.[^.]+$/, "") + " (marked).wav", "audio/wav");
+    status("Marked " + fmtLong(audio.duration) + " of score and downloaded it. Lay the marked file over the film, and keep the seed.");
+  } catch (e) {
+    status("Could not read that score: " + ((e && e.message) || e), true);
+  }
+}
+
+async function verifySuspect(file) {
+  const seed = (S.provenance && S.provenance.seed) || S.film.markSeed || "";
+  if (!seed) { status("Mark a score first, or set the seed, so there is something to look for.", true); return; }
+  status("Looking for the mark in " + file.name);
+  try {
+    const audio = await decodeFile(file);
+    const ch = channels(audio);
+    const mono = ch.R ? downmix(ch.L, ch.R) : ch.L;
+    const r = CLRMARK.detectMark(mono, seed, ch.sr, {});
+    const v = CLRMARK.markVerdict(r.index);
+    S.suspect = {
+      name: file.name, at: nowStamp(), index: r.index, level: v.level, verdict: v.label,
+      offsetChips: r.offsetChips, windowSeconds: r.windowSeconds, seed: seed, seconds: audio.duration,
+    };
+    save();
+    render();
+    status(r.index >= 8
+      ? "The mark is in that file. Reading " + r.index.toFixed(1) + " against a floor of about 2.5."
+      : "No mark found in that file. Reading " + r.index.toFixed(1) + " against a floor of about 2.5. That is not proof the audio is not yours, only that this mark is not in it.");
+  } catch (e) {
+    status("Could not read that file: " + ((e && e.message) || e), true);
+  }
+}
+
+function downmix(L, R) {
+  const out = new Float32Array(L.length);
+  for (let i = 0; i < out.length; i++) out[i] = (L[i] + R[i]) / 2;
+  return out;
+}
+
+function downloadBytes(bytes, name, type) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([bytes], { type: type || "application/octet-stream" }));
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
 }
 
 async function hashFilm() {
@@ -1965,6 +2452,11 @@ async function run(file) {
     if (lab) lab.textContent = "Grabbing stills for each cue";
     if (res.cues.length) await grabThumbs(file, S.cues, function (p) { if (bar) bar.style.width = Math.round(p * 100) + "%"; });
     save();
+    if (res.cues.length && S.settings.identify && S.settings.identify.auto && serverUrl()) {
+      const h = await serverHealth();
+      if (h.ready) await identifyAll();
+      else renderIdentify();
+    }
     status(res.cues.length
       ? res.cues.length + " music cue" + (res.cues.length === 1 ? "" : "s") + " found in " + fmtLong(res.duration) + ". Declare each one in the cue sheet."
       : "No music cues found in this cut. Either it is all dialogue, or the music is very quiet. Check the sound map before you believe it.");
@@ -2025,6 +2517,12 @@ const CLR = {
   render: render, renderScan: renderScan, renderCues: renderCues, renderShield: renderShield,
   renderDispute: renderDispute, renderBrief: renderBrief, renderRouteNotes: renderRouteNotes,
   sampleFilm: sampleFilm, addCueAt: addCueAt, drawMap: drawMap, show: show, demeoSlate: demeoSlate,
+  encodeWav: encodeWav, snippetFor: snippetFor, resampleTo: resampleTo,
+  matchLine: matchLine, matchSummary: matchSummary, markSeedFor: markSeedFor,
+  getSnippets: function () { return SNIPPETS; },
+  serverHealth: serverHealth, identifyCue: identifyCue, identifyAll: identifyAll,
+  markScore: markScore, verifySuspect: verifySuspect, downmix: downmix,
+  renderIdentify: renderIdentify, renderProvenance: renderProvenance, renderSuspect: renderSuspect,
   getState: function () { return S; },
 };
 if (typeof module !== "undefined" && module.exports) module.exports = CLR;

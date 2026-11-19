@@ -1,0 +1,12 @@
+{
+  "name": "clearance-identify",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Identification sidecar for CLEARANCE. Names the tracks the scanner finds, using AudD or ACRCloud. No dependencies.",
+  "main": "index.js",
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "start": "node index.js",
+    "test": "node ../tests/provider.test.js && node ../tests/server.test.js"
+  }
+}

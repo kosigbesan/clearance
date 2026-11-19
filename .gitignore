@@ -12,3 +12,4 @@ _recon/
 __pycache__/
 tests/__pycache__/
 *.bak
+tests/_live/
